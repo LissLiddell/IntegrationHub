@@ -1,0 +1,289 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: IntegrationHub webhook ingestion and delivery pipeline
+
+Parameters:
+  DemoAccessKeySha256:
+    Type: String
+    NoEcho: true
+    Description: SHA-256 hex digest for the private demo control API key
+    AllowedPattern: "^[A-Fa-f0-9]{64}$"
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    MemorySize: 256
+    Timeout: 15
+    Environment:
+      Variables:
+        INTEGRATION_TABLE_NAME: !Ref IntegrationTable
+        DELIVERY_QUEUE_URL: !Ref DeliveryQueue
+
+Resources:
+  IntegrationTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+        - AttributeName: GSI2PK
+          AttributeType: S
+        - AttributeName: GSI2SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI2
+          KeySchema:
+            - AttributeName: GSI2PK
+              KeyType: HASH
+            - AttributeName: GSI2SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  DeliveryDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      MessageRetentionPeriod: 1209600
+
+  DeliveryQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      VisibilityTimeout: 60
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeliveryDeadLetterQueue.Arn
+        maxReceiveCount: 4
+
+  DemoDestinationSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "integrationhub/${AWS::StackName}/nebula-fulfillment"
+      Description: Credential for the fictional Nebula Commerce fulfillment destination
+      GenerateSecretString:
+        SecretStringTemplate: '{"purpose":"nebula-fulfillment-demo"}'
+        GenerateStringKey: token
+        PasswordLength: 32
+        ExcludePunctuation: true
+
+  WebhookFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints: [src/aws/handlers/webhook-entry.ts]
+        Minify: true
+        Sourcemap: true
+        Target: es2022
+    Properties:
+      CodeUri: ../
+      Handler: src/aws/handlers/webhook-entry.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref IntegrationTable
+      Events:
+        PublicWebhook:
+          Type: HttpApi
+          Properties:
+            Path: /hooks/{token}
+            Method: POST
+
+  OutboxDispatcherFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints: [src/aws/handlers/outbox-dispatcher-entry.ts]
+        Minify: true
+        Sourcemap: true
+        Target: es2022
+    Properties:
+      CodeUri: ../
+      Handler: src/aws/handlers/outbox-dispatcher-entry.handler
+      Policies:
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt DeliveryQueue.QueueName
+      Events:
+        OutboxStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt IntegrationTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            FilterCriteria:
+              Filters:
+                - Pattern: '{ "eventName": ["INSERT"], "dynamodb": { "NewImage": { "entityType": { "S": ["OUTBOX"] } } } }'
+
+  DeliveryWorkerFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints: [src/aws/handlers/delivery-worker-entry.ts]
+        Minify: true
+        Sourcemap: true
+        Target: es2022
+    Properties:
+      CodeUri: ../
+      Handler: src/aws/handlers/delivery-worker-entry.handler
+      Timeout: 35
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref IntegrationTable
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:integrationhub/*"
+      Events:
+        DeliveryQueueEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt DeliveryQueue.Arn
+            BatchSize: 5
+            ScalingConfig:
+              MaximumConcurrency: 2
+            FunctionResponseTypes: [ReportBatchItemFailures]
+
+  DemoDestinationFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints: [src/aws/handlers/demo-destination-entry.ts]
+        Minify: true
+        Sourcemap: true
+        Target: es2022
+    Properties:
+      CodeUri: ../
+      Handler: src/aws/handlers/demo-destination-entry.handler
+      Environment:
+        Variables:
+          DEMO_DESTINATION_SECRET_ARN: !Ref DemoDestinationSecret
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref IntegrationTable
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Ref DemoDestinationSecret
+      Events:
+        DemoFulfillment:
+          Type: HttpApi
+          Properties:
+            Path: /demo/fulfillment
+            Method: POST
+        VerifyDemoFulfillment:
+          Type: HttpApi
+          Properties:
+            Path: /demo/fulfillment/verify
+            Method: GET
+
+  ControlApiFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints: [src/aws/handlers/control-api-entry.ts]
+        Minify: true
+        Sourcemap: true
+        Target: es2022
+    Properties:
+      CodeUri: ../
+      Handler: src/aws/handlers/control-api-entry.handler
+      Environment:
+        Variables:
+          DEMO_ACCESS_KEY_SHA256: !Ref DemoAccessKeySha256
+          DEMO_ORGANIZATION_ID: org_nebula
+          DEMO_ACTOR_ID: user_lisset
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref IntegrationTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt DeliveryQueue.QueueName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+                - secretsmanager:PutSecretValue
+              Resource: !Ref DemoDestinationSecret
+      Events:
+        ListRuns:
+          Type: HttpApi
+          Properties:
+            Path: /api/demo/runs
+            Method: GET
+        GetRun:
+          Type: HttpApi
+          Properties:
+            Path: /api/demo/runs/{runId}
+            Method: GET
+        RetryRun:
+          Type: HttpApi
+          Properties:
+            Path: /api/demo/runs/{runId}/retry
+            Method: POST
+        CloseRun:
+          Type: HttpApi
+          Properties:
+            Path: /api/demo/runs/{runId}/close
+            Method: POST
+        RemediateConnection:
+          Type: HttpApi
+          Properties:
+            Path: /api/demo/connections/{connectionId}/remediate
+            Method: POST
+        GetRoles:
+          Type: HttpApi
+          Properties:
+            Path: /api/demo/roles
+            Method: GET
+
+Outputs:
+  WebhookApiUrl:
+    Description: Public webhook API base URL
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
+  IntegrationTableName:
+    Value: !Ref IntegrationTable
+  DeliveryQueueUrl:
+    Value: !Ref DeliveryQueue
+  DeliveryDeadLetterQueueUrl:
+    Value: !Ref DeliveryDeadLetterQueue
+  DemoDestinationUrl:
+    Description: Fictional destination that fails once and accepts the manual retry
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/demo/fulfillment"
+  DemoDestinationSecretArn:
+    Value: !Ref DemoDestinationSecret
+  ControlApiUrl:
+    Description: Private demo operations API consumed by the web panel
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/api/demo"

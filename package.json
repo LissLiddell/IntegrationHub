@@ -1,0 +1,38 @@
+{
+  "name": "integrationhub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.17.1",
+  "scripts": {
+    "build": "pnpm build:core && pnpm build:web",
+    "build:core": "tsc -p tsconfig.build.json",
+    "build:web": "pnpm --dir apps/web build",
+    "dev:web": "pnpm --dir apps/web dev",
+    "test": "node --require ./scripts/node-bootstrap.cjs --import tsx --test src/domain/first-flow.test.ts src/aws/dynamo-repository.test.ts src/aws/secure-http-delivery.test.ts src/aws/sqs-run-queue.test.ts src/aws/handlers/handlers.test.ts apps/web/lib/operations-rules.test.ts",
+    "typecheck": "pnpm typecheck:core && pnpm --dir apps/web typecheck",
+    "typecheck:core": "tsc --noEmit",
+    "check": "pnpm test && pnpm typecheck && pnpm build",
+    "demo:first-flow": "node --require ./scripts/node-bootstrap.cjs --import tsx scripts/demo-first-flow.ts",
+    "demo:credentials": "node --require ./scripts/node-bootstrap.cjs --import tsx scripts/generate-demo-credentials.ts",
+    "seed:aws-demo": "node --require ./scripts/node-bootstrap.cjs --import tsx scripts/seed-aws-demo.ts"
+  },
+  "engines": {
+    "node": ">=20.9"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.163",
+    "@types/node": "^22.15.3",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1130.0",
+    "@aws-sdk/client-secrets-manager": "^3.1130.0",
+    "@aws-sdk/client-sqs": "^3.1130.0",
+    "@aws-sdk/lib-dynamodb": "^3.1130.0",
+    "@aws-sdk/util-dynamodb": "^3.996.9",
+    "zod": "^4.6.2"
+  }
+}

@@ -1,0 +1,10 @@
+node_modules/
+coverage/
+dist/
+.next/
+.sites-runtime/
+*.tsbuildinfo
+.env
+.env.local
+cdk.out/
+*.log

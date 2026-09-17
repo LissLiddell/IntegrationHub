@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: liss-integrationhub
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build:web
+    startCommand: pnpm --dir apps/web start
+    healthCheckPath: /
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: INTEGRATIONHUB_API_URL
+        sync: false
+      - key: INTEGRATIONHUB_DEMO_KEY
+        sync: false
