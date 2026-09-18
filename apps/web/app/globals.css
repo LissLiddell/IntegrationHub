@@ -94,6 +94,7 @@ svg { width: 1.1rem; height: 1.1rem; fill: none; stroke: currentColor; stroke-wi
 .secondary-button:disabled { opacity: 0.55; cursor: wait; }
 .demo-button { min-height: 44px; padding: 0 15px; display: inline-flex; align-items: center; gap: 9px; border: 1px solid var(--mint); border-radius: 7px; background: var(--mint); color: #06221b; font-weight: 800; cursor: pointer; }
 .demo-button:hover { background: #9affdf; transform: translateY(-1px); }
+.demo-button:disabled { border-color: var(--line-strong); background: var(--panel-2); color: var(--faint); cursor: not-allowed; transform: none; }
 
 .demo-launcher { margin: -4px 0 16px; padding: 20px; display: grid; grid-template-columns: minmax(230px, 0.72fr) minmax(0, 1.8fr); gap: 24px; border: 1px solid rgba(114, 245, 206, 0.34); border-radius: var(--radius); background: linear-gradient(120deg, rgba(20, 63, 54, 0.48), rgba(9, 22, 28, 0.98) 42%); }
 .demo-launcher-copy h2 { margin: 4px 0 7px; font-size: 1.25rem; }

@@ -261,6 +261,50 @@ describe("Lambda handlers", () => {
     assert.equal(queue.messages[0]?.deliveryId, `retry_${accepted.run.id}_2`);
   });
 
+  it("creates a rate-limited AWS demo run through the protected control API", async () => {
+    const repository = new InMemoryIntegrationRepository();
+    repository.addRoleAssignment({ ...demoRoleAssignment, roles: [...demoRoleAssignment.roles] });
+    const clock = new FixedClock("2026-09-11T12:00:00.000Z");
+    const handler = createControlApiHandler({
+      repository,
+      queue: new InMemoryQueue(),
+      credentialStore,
+      organizationId: "org_nebula",
+      actorId: "user_lisset",
+      accessKeySha256: sha256("demo-control-key"),
+      now: () => new Date("2026-09-11T12:00:00.000Z"),
+      demoRun: {
+        workflow: activeDemoWorkflow,
+        clock,
+        ids: new SequentialIds(),
+        limiter: {
+          async consume() {
+            return { allowed: true, remaining: 49 };
+          }
+        },
+        dailyLimit: 50
+      }
+    });
+
+    const response = await handler(
+      apiEvent("POST", {
+        path: "/api/demo/runs/demo",
+        headers: {
+          "x-integrationhub-demo-key": "demo-control-key",
+          "x-integrationhub-role": "operator"
+        },
+        body: JSON.stringify({ scenario: "shipping-timeout" })
+      })
+    );
+    const body = JSON.parse(response.body ?? "{}");
+
+    assert.equal(response.statusCode, 202);
+    assert.equal(body.outcome, "ACCEPTED");
+    assert.equal(body.run.status, "QUEUED");
+    assert.equal(body.remaining, 49);
+    assert.equal(repository.outboxMessages.length, 1);
+  });
+
   it("persists a case closure and blocks later retries", async () => {
     const repository = new InMemoryIntegrationRepository();
     repository.addWorkflow(activeDemoWorkflow);

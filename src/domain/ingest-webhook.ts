@@ -1,5 +1,5 @@
 import { DomainError } from "./errors.ts";
-import type { OutboxMessage, Run, WebhookEvent } from "./model.ts";
+import type { OutboxMessage, Run, WebhookEvent, Workflow } from "./model.ts";
 import type { Clock, IdGenerator, IntegrationRepository } from "./ports.ts";
 
 const EVENT_ID_LIMIT = 200;
@@ -29,17 +29,11 @@ function normalizeEvent(event: WebhookEvent): WebhookEvent {
   return { ...event, eventId, eventType };
 }
 
-export async function ingestWebhook(
-  webhookToken: string,
-  incomingEvent: WebhookEvent,
+async function storeWorkflowEvent(
+  workflow: Workflow,
+  event: WebhookEvent,
   dependencies: IngestDependencies
 ): Promise<IngestResult> {
-  const event = normalizeEvent(incomingEvent);
-  const workflow = await dependencies.repository.findWorkflowByWebhookToken(webhookToken);
-
-  if (!workflow) {
-    throw new DomainError("WORKFLOW_NOT_FOUND", "The webhook endpoint does not exist.");
-  }
   if (workflow.status !== "ACTIVE") {
     throw new DomainError("WORKFLOW_INACTIVE", "The workflow is not accepting events.");
   }
@@ -75,4 +69,27 @@ export async function ingestWebhook(
   }
 
   return { outcome: "ACCEPTED", run: stored.run };
+}
+
+export async function ingestWorkflowEvent(
+  workflow: Workflow,
+  incomingEvent: WebhookEvent,
+  dependencies: IngestDependencies
+): Promise<IngestResult> {
+  const event = normalizeEvent(incomingEvent);
+  return storeWorkflowEvent(workflow, event, dependencies);
+}
+
+export async function ingestWebhook(
+  webhookToken: string,
+  incomingEvent: WebhookEvent,
+  dependencies: IngestDependencies
+): Promise<IngestResult> {
+  const event = normalizeEvent(incomingEvent);
+  const workflow = await dependencies.repository.findWorkflowByWebhookToken(webhookToken);
+
+  if (!workflow) {
+    throw new DomainError("WORKFLOW_NOT_FOUND", "The webhook endpoint does not exist.");
+  }
+  return storeWorkflowEvent(workflow, event, dependencies);
 }

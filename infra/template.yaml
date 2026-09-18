@@ -243,6 +243,11 @@ Resources:
           Properties:
             Path: /api/demo/runs
             Method: GET
+        GenerateDemoRun:
+          Type: HttpApi
+          Properties:
+            Path: /api/demo/runs/demo
+            Method: POST
         GetRun:
           Type: HttpApi
           Properties:

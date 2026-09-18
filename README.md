@@ -101,6 +101,13 @@ Only the SHA-256 digest of that control key is passed to the Lambda stack. The
 browser never receives either private value; Next.js route handlers act as the
 small backend-for-frontend boundary.
 
+When the panel is connected, **Generar prueba AWS** creates a unique order through
+that same private boundary. The event is persisted with its outbox and then travels
+through DynamoDB Streams, SQS FIFO, the delivery worker, and the fictional provider.
+The generator is restricted to assigned operator or administrator roles and to 50
+new runs per UTC day, enforced atomically in DynamoDB, so a public portfolio visit
+cannot create unbounded AWS traffic.
+
 After updating an existing stack, run `pnpm seed:aws-demo` again. The seed is
 idempotent for the portfolio tenant and now also creates the `user_lisset` demo
 role assignment used by the operator, administrator, and auditor selector.

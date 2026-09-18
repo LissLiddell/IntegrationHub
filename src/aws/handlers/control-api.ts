@@ -1,12 +1,16 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
+import { ingestWorkflowEvent } from "../../domain/ingest-webhook.ts";
 import { retryRun } from "../../domain/retry-run.ts";
-import type { OperatorRole, OperationsActor } from "../../domain/model.ts";
+import type { OperatorRole, OperationsActor, Workflow } from "../../domain/model.ts";
 import type {
+  Clock,
   ConnectionCredentialStore,
+  IdGenerator,
   IntegrationRepository,
   RunQueue
 } from "../../domain/ports.ts";
+import type { DemoRunLimiter } from "../dynamo-demo-run-limiter.ts";
 import { sha256 } from "../dynamo-keys.ts";
 
 export interface ControlApiDependencies {
@@ -17,6 +21,13 @@ export interface ControlApiDependencies {
   actorId: string;
   accessKeySha256: string;
   now?: () => Date;
+  demoRun?: {
+    workflow: Workflow;
+    clock: Clock;
+    ids: IdGenerator;
+    limiter: DemoRunLimiter;
+    dailyLimit: number;
+  };
 }
 
 function json(statusCode: number, body: unknown): APIGatewayProxyStructuredResultV2 {
@@ -97,6 +108,64 @@ export function createControlApiHandler(dependencies: ControlApiDependencies) {
       const method = event.requestContext.http.method;
       const runId = event.pathParameters?.runId?.trim();
       const connectionId = event.pathParameters?.connectionId?.trim();
+
+      if (method === "POST" && !runId && routeEndsWith(event, "/runs/demo")) {
+        const actor = await actorFor(event, dependencies);
+        if (!actor || actor.role === "auditor") return roleForbidden();
+        if (!dependencies.demoRun) {
+          return json(503, {
+            error: { code: "DEMO_GENERATOR_UNAVAILABLE", message: "The AWS demo generator is not configured." }
+          });
+        }
+        const body = parseBody(event);
+        if (!body || (body.scenario !== undefined && body.scenario !== "shipping-timeout")) {
+          return json(400, {
+            error: { code: "INVALID_DEMO_SCENARIO", message: "The requested AWS demo scenario is not supported." }
+          });
+        }
+
+        const occurredAt = now().toISOString();
+        const allowance = await dependencies.demoRun.limiter.consume(
+          occurredAt,
+          dependencies.demoRun.dailyLimit
+        );
+        if (!allowance.allowed) {
+          return json(429, {
+            error: {
+              code: "DEMO_DAILY_LIMIT_REACHED",
+              message: "The daily AWS demo limit was reached. Try again tomorrow."
+            },
+            remaining: 0
+          });
+        }
+
+        const suffix = randomUUID();
+        const result = await ingestWorkflowEvent(
+          dependencies.demoRun.workflow,
+          {
+            eventId: `evt_portfolio_${suffix}`,
+            eventType: "order.created",
+            payload: {
+              orderId: `ORD-${suffix.slice(0, 8).toUpperCase()}`,
+              total: 12840,
+              currency: "MXN",
+              items: 2,
+              warehouse: "MEX-01",
+              source: "portfolio-aws-demo"
+            }
+          },
+          {
+            repository: dependencies.repository,
+            clock: dependencies.demoRun.clock,
+            ids: dependencies.demoRun.ids
+          }
+        );
+        return json(202, {
+          outcome: result.outcome,
+          run: result.run,
+          remaining: allowance.remaining
+        });
+      }
 
       if (method === "GET" && routeEndsWith(event, "/roles")) {
         const assignment = await dependencies.repository.getRoleAssignment(

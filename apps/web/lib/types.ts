@@ -71,6 +71,12 @@ export interface RunsResponse {
   mode?: "connected" | "preview";
 }
 
+export interface AwsDemoRunResponse {
+  outcome: "ACCEPTED" | "DUPLICATE";
+  run: Run;
+  remaining: number;
+}
+
 export interface RoleAssignment {
   actorId: string;
   organizationId: string;

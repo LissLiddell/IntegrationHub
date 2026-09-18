@@ -10,6 +10,7 @@ import {
   type OperatorRole
 } from "@/lib/operations-rules";
 import type {
+  AwsDemoRunResponse,
   CaseActivity,
   CaseClosure,
   RolesResponse,
@@ -196,6 +197,7 @@ export function OperationsConsole() {
   const [mode, setMode] = useState<"preview" | "connected">("preview");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [isGeneratingAwsDemo, setIsGeneratingAwsDemo] = useState(false);
   const [notice, setNotice] = useState("Vista local preparada con datos de Nébula Commerce.");
   const [role, setRole] = useState<OperatorRole>("operator");
   const [availableRoles, setAvailableRoles] = useState<OperatorRole[]>(["operator", "admin", "auditor"]);
@@ -702,6 +704,51 @@ export function OperationsConsole() {
     );
   }
 
+  async function generateAwsDemoRun() {
+    if (role === "auditor") {
+      setNotice("El rol Auditor es de sólo lectura. Cambia a Operador o Administrador para generar una prueba.");
+      return;
+    }
+
+    setIsGeneratingAwsDemo(true);
+    setNotice("Enviando un pedido nuevo al pipeline real de AWS…");
+    try {
+      const response = await fetch("/api/runs/demo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ role })
+      });
+      const body = (await response.json()) as AwsDemoRunResponse & {
+        error?: { code?: string; message?: string };
+      };
+      if (!response.ok) {
+        if (body.error?.code === "DEMO_DAILY_LIMIT_REACHED") {
+          throw new Error("La demo alcanzó su límite seguro de 50 pruebas por hoy. Mañana se reinicia automáticamente.");
+        }
+        throw new Error(body.error?.message || "No fue posible generar la prueba AWS.");
+      }
+
+      setRuns((current) => [body.run, ...current.filter((run) => run.id !== body.run.id)]);
+      setAttempts((current) => ({ ...current, [body.run.id]: [] }));
+      setSelectedId(body.run.id);
+      setNotice(
+        `Pedido aceptado por AWS. Sigue su recorrido en vivo; quedan ${body.remaining} pruebas disponibles hoy.`
+      );
+
+      void (async () => {
+        for (const delay of [900, 1_500, 2_400]) {
+          await new Promise((resolve) => window.setTimeout(resolve, delay));
+          await Promise.all([loadDetail(body.run.id), loadRuns(true)]);
+        }
+        setNotice("La prueba AWS terminó su primer intento. Ya puedes revisar el resultado y su historial.");
+      })();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "No fue posible generar la prueba AWS.");
+    } finally {
+      setIsGeneratingAwsDemo(false);
+    }
+  }
+
   async function copyCorrelation() {
     if (!selected) return;
     await navigator.clipboard?.writeText(selected.correlationId);
@@ -749,7 +796,17 @@ export function OperationsConsole() {
               <button className="demo-button" type="button" onClick={() => setDemoPanelOpen((current) => !current)} aria-expanded={demoPanelOpen}>
                 <Icon name="bolt" /> Simular entradas
               </button>
-            ) : null}
+            ) : (
+              <button
+                className="demo-button"
+                type="button"
+                onClick={() => void generateAwsDemoRun()}
+                disabled={isGeneratingAwsDemo || role === "auditor"}
+                title={role === "auditor" ? "El rol Auditor es de sólo lectura" : "Crea un pedido real en AWS"}
+              >
+                <Icon name="bolt" /> {isGeneratingAwsDemo ? "Generando en AWS…" : "Generar prueba AWS"}
+              </button>
+            )}
             <button className="secondary-button" type="button" onClick={() => void loadRuns()} disabled={isRefreshing}>
               <Icon name="refresh" /> {isRefreshing ? "Actualizando…" : "Actualizar"}
             </button>
