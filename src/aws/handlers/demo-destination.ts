@@ -30,6 +30,13 @@ function authorized(header: string | undefined, expectedToken: string): boolean 
 export function createDemoDestinationHandler(dependencies: DemoDestinationDependencies) {
   return async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> => {
     try {
+      if (event.requestContext.http.method === "GET" && event.rawPath.endsWith("/health")) {
+        return json(200, {
+          status: "ok",
+          service: "integrationhub-aws"
+        });
+      }
+
       const expectedToken = await dependencies.getExpectedToken();
       if (!authorized(event.headers.authorization, expectedToken)) {
         return json(401, { error: { code: "UNAUTHORIZED", message: "Destination credential is invalid." } });

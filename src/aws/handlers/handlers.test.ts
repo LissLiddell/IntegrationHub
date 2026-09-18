@@ -573,4 +573,27 @@ describe("Lambda handlers", () => {
     assert.equal(JSON.parse(response.body ?? "{}").status, "connected");
     assert.equal(invocation, 0);
   });
+
+  it("reports AWS health without reading credentials or creating a delivery", async () => {
+    let secretReads = 0;
+    let invocation = 0;
+    const handler = createDemoDestinationHandler({
+      counter: { increment: async () => ++invocation },
+      getExpectedToken: async () => {
+        secretReads += 1;
+        return "destination-token";
+      },
+      now: () => new Date("2026-09-11T12:00:00.000Z")
+    });
+
+    const response = await handler(apiEvent("GET", { path: "/health" }));
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(JSON.parse(response.body ?? "{}"), {
+      status: "ok",
+      service: "integrationhub-aws"
+    });
+    assert.equal(secretReads, 0);
+    assert.equal(invocation, 0);
+  });
 });

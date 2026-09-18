@@ -18,7 +18,7 @@
     "seed:aws-demo": "node --require ./scripts/node-bootstrap.cjs --import tsx scripts/seed-aws-demo.ts"
   },
   "engines": {
-    "node": ">=20.9"
+    "node": "22.x"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.163",

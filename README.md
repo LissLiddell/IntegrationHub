@@ -70,6 +70,24 @@ actions remain local product demonstrations. With the AWS control API configured
 the same UI reads assigned roles from DynamoDB and persists connection remediation,
 case closure, and audit activity across reloads.
 
+## Delivery pipeline
+
+Every pull request and push to `main` runs the same quality gate in GitHub
+Actions: locked dependency installation, automated tests, TypeScript checks,
+the production web build, SAM validation, and the AWS package build. A failure
+stops the release before either cloud is changed.
+
+On `main`, the successful gate can assume a short-lived AWS role through OIDC,
+deploy only the `integrationhub-demo` stack, and call the read-only `/health`
+endpoint. No long-lived AWS access key is stored in GitHub. Render is configured
+with `autoDeployTrigger: checksPass`, so it releases the web console only after
+the GitHub checks are green and then applies its own health check.
+
+The one-time OIDC bootstrap is described in
+[`docs/CI_CD_ES.md`](docs/CI_CD_ES.md). Business-flow mutation remains a manual
+portfolio test: the pipeline verifies construction and availability but does not
+create fake orders on every commit.
+
 ## Seed the AWS demo
 
 Generate the private demo values first:

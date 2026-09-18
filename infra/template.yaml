@@ -208,6 +208,11 @@ Resources:
           Properties:
             Path: /demo/fulfillment/verify
             Method: GET
+        PublicHealth:
+          Type: HttpApi
+          Properties:
+            Path: /health
+            Method: GET
 
   ControlApiFunction:
     Type: AWS::Serverless::Function
@@ -292,3 +297,6 @@ Outputs:
   ControlApiUrl:
     Description: Private demo operations API consumed by the web panel
     Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/api/demo"
+  HealthUrl:
+    Description: Read-only endpoint used by the deployment smoke test
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/health"
