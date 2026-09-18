@@ -3,7 +3,7 @@ services:
     name: liss-integrationhub
     runtime: node
     plan: free
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build:web
+    buildCommand: pnpm install --frozen-lockfile && pnpm build:web
     startCommand: pnpm --dir apps/web start
     healthCheckPath: /
     autoDeployTrigger: checksPass
