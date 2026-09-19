@@ -36,6 +36,8 @@ En el asistente usa:
 - Stack name: `integrationhub-demo`
 - AWS Region: `us-east-1`
 - Parameter `DemoAccessKeySha256`: el valor generado en el paso anterior
+- Parameter `DemoValidCredential`: conserva el valor ficticio predeterminado
+  para que la guía interactiva pueda completar el escenario `401`
 - Confirm changes before deploy: `Y`
 - Allow SAM CLI IAM role creation: `Y`
 - Save arguments to configuration file: `Y`
@@ -79,16 +81,28 @@ pnpm dev:web
 El encabezado debe mostrar **Conectado a AWS**. Al corregir una conexión o
 cerrar un caso, recarga la página: el cambio debe seguir ahí.
 
-## 5. Prueba mínima de persistencia
+## 5. Probar el laboratorio AWS
 
-1. Genera una entrada que termine en `401`.
-2. Cambia al perfil **Administradora** y guarda una credencial nueva.
-3. Confirma que aparece **Conexión corregida y verificada** sin crear un nuevo
-   intento del pedido.
-4. Reintenta como operadora; ésa sí es una petición real del flujo.
-5. Genera un fallo temporal, ciérralo con **Otro motivo** y escribe su historia.
-6. Recarga el navegador y confirma que el cierre y las actividades permanecen.
-7. Cambia a **Auditora** y confirma que puede leer, pero no modificar.
+1. Abre **Laboratorio AWS** y ejecuta **Éxito al primer intento**. Debe terminar
+   en `202` con un solo intento.
+2. Ejecuta **Fallo temporal**. Debe terminar en `503`; reprocesarlo como
+   Operadora debe agregar el intento 2 con `202`.
+3. Ejecuta **Credencial rechazada**. El intento 1 debe terminar en `401` y no
+   permitir un reintento ciego.
+4. Cambia al perfil **Administradora**, abre **Corregir conexión** y pulsa
+   **Cargar clave demo**. **Guardar y probar conexión** debe registrar la
+   actividad sin crear otro intento del pedido.
+5. Cambia a **Operadora** y pulsa **Reprocesar pedido**. Ésta sí es una petición
+   real y debe quedar como intento 2 con `202`.
+6. Genera otro fallo, ciérralo con **Otro motivo** y escribe su historia.
+7. Recarga el navegador y confirma que el cierre y las actividades permanecen.
+8. Cambia a **Auditora** y confirma que puede leer, pero no modificar.
+
+La clave `nebula-portfolio-demo-2026` es pública y ficticia: no permite entrar
+a AWS ni acceder a datos. Secrets Manager conserva únicamente la copia cliente
+que usa IntegrationHub; el proveedor de laboratorio compara contra un valor
+independiente. Así el `401` y su corrección son reales sin exponer credenciales
+productivas.
 
 ## Apagar la demostración
 

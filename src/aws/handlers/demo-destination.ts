@@ -60,10 +60,23 @@ export function createDemoDestinationHandler(dependencies: DemoDestinationDepend
         return json(400, { error: { code: "INVALID_PAYLOAD", message: "A JSON payload is required." } });
       }
       const rawBody = event.isBase64Encoded ? Buffer.from(event.body, "base64").toString("utf8") : event.body;
+      let payload: unknown;
       try {
-        JSON.parse(rawBody);
+        payload = JSON.parse(rawBody);
       } catch {
         return json(400, { error: { code: "INVALID_PAYLOAD", message: "Payload must be valid JSON." } });
+      }
+
+      const demoScenario =
+        typeof payload === "object" && payload !== null && "demoScenario" in payload
+          ? payload.demoScenario
+          : undefined;
+      if (demoScenario === "shipping-success" || demoScenario === "credential-failure") {
+        return json(202, {
+          status: "accepted",
+          message: "Shipment preparation accepted.",
+          receipt: `FUL-${correlationId.slice(-8).toUpperCase()}`
+        });
       }
 
       const invocation = await dependencies.counter.increment(correlationId, dependencies.now().toISOString());

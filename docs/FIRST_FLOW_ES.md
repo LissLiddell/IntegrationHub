@@ -45,6 +45,20 @@ ráfaga de dos envíos y una factura. En producción ese botón no sería necesa
 los avisos llegarían solos y el tablero simplemente mostraría todas las
 ejecuciones activas.
 
+Cuando la consola está conectada, **Laboratorio AWS** ofrece tres escenarios
+controlados que sí recorren la infraestructura desplegada:
+
+- **Éxito al primer intento:** el proveedor ficticio responde `202`.
+- **Fallo temporal:** responde `503`; la operadora decide si crea el intento 2.
+- **Credencial rechazada:** IntegrationHub usa deliberadamente una clave
+  incorrecta y recibe `401`. La administradora carga la clave pública del
+  laboratorio, guarda y prueba únicamente la conexión; después la operadora
+  solicita el reproceso real.
+
+La prueba de conexión usa `GET /verify`, no contiene el pedido y no incrementa
+su número de intentos. La clave visible es ficticia, sólo funciona en este
+laboratorio y no concede acceso a la cuenta de AWS ni a datos reales.
+
 El cierre incluye motivos frecuentes y **Otro motivo**. Cuando se selecciona
 este último, la historia escrita es obligatoria y queda visible en el resumen y
 en la actividad de auditoría.

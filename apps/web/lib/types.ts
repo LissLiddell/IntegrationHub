@@ -1,6 +1,7 @@
 export type RunStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED_RETRYABLE" | "FAILED_FINAL";
 export type AttemptStatus = "SUCCEEDED" | "FAILED_RETRYABLE" | "FAILED_FINAL";
 export type OperatorRole = "operator" | "admin" | "auditor";
+export type AwsDemoScenario = "shipping-success" | "shipping-timeout" | "credential-failure";
 
 export interface Run {
   id: string;
@@ -74,6 +75,7 @@ export interface RunsResponse {
 export interface AwsDemoRunResponse {
   outcome: "ACCEPTED" | "DUPLICATE";
   run: Run;
+  scenario: AwsDemoScenario;
   remaining: number;
 }
 

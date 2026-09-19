@@ -1,5 +1,7 @@
 import { systemClock, uuidGenerator } from "../../domain/system.ts";
+import { AwsDemoScenarioPreparer } from "../demo-scenario.ts";
 import { loadAwsConfig } from "../config.ts";
+import { secretsManagerClient } from "../clients.ts";
 import { connectionCredentialStore, demoRunLimiter, repository, runQueue } from "../runtime.ts";
 import { createControlApiHandler } from "./control-api.ts";
 
@@ -9,6 +11,11 @@ if (!accessKeySha256 || !/^[a-f0-9]{64}$/i.test(accessKeySha256)) {
 }
 
 loadAwsConfig();
+
+const demoConnectionSecretArn = process.env.DEMO_CONNECTION_SECRET_ARN?.trim();
+const demoValidCredential = process.env.DEMO_VALID_CREDENTIAL?.trim();
+if (!demoConnectionSecretArn) throw new Error("DEMO_CONNECTION_SECRET_ARN is required.");
+if (!demoValidCredential) throw new Error("DEMO_VALID_CREDENTIAL is required.");
 
 export const handler = createControlApiHandler({
   repository,
@@ -29,6 +36,11 @@ export const handler = createControlApiHandler({
     clock: systemClock,
     ids: uuidGenerator,
     limiter: demoRunLimiter,
-    dailyLimit: 50
+    dailyLimit: 50,
+    scenarioPreparer: new AwsDemoScenarioPreparer(
+      secretsManagerClient,
+      demoConnectionSecretArn,
+      demoValidCredential
+    )
   }
 });

@@ -9,7 +9,7 @@
     "build:core": "tsc -p tsconfig.build.json",
     "build:web": "pnpm --dir apps/web build",
     "dev:web": "pnpm --dir apps/web dev",
-    "test": "node --require ./scripts/node-bootstrap.cjs --import tsx --test src/domain/first-flow.test.ts src/aws/dynamo-repository.test.ts src/aws/secure-http-delivery.test.ts src/aws/sqs-run-queue.test.ts src/aws/handlers/handlers.test.ts apps/web/lib/operations-rules.test.ts",
+    "test": "node --require ./scripts/node-bootstrap.cjs --import tsx --test src/domain/first-flow.test.ts src/aws/demo-scenario.test.ts src/aws/dynamo-repository.test.ts src/aws/secure-http-delivery.test.ts src/aws/sqs-run-queue.test.ts src/aws/handlers/handlers.test.ts apps/web/lib/operations-rules.test.ts",
     "typecheck": "pnpm typecheck:core && pnpm --dir apps/web typecheck",
     "typecheck:core": "tsc --noEmit",
     "check": "pnpm test && pnpm typecheck && pnpm build",

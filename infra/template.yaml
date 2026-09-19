@@ -8,6 +8,12 @@ Parameters:
     NoEcho: true
     Description: SHA-256 hex digest for the private demo control API key
     AllowedPattern: "^[A-Fa-f0-9]{64}$"
+  DemoValidCredential:
+    Type: String
+    NoEcho: true
+    Default: nebula-portfolio-demo-2026
+    MinLength: 8
+    Description: Fictional public credential used only by the interactive portfolio laboratory
 
 Globals:
   Function:
@@ -89,12 +95,8 @@ Resources:
     Type: AWS::SecretsManager::Secret
     Properties:
       Name: !Sub "integrationhub/${AWS::StackName}/nebula-fulfillment"
-      Description: Credential for the fictional Nebula Commerce fulfillment destination
-      GenerateSecretString:
-        SecretStringTemplate: '{"purpose":"nebula-fulfillment-demo"}'
-        GenerateStringKey: token
-        PasswordLength: 32
-        ExcludePunctuation: true
+      Description: IntegrationHub client credential for the fictional Nebula Commerce destination
+      SecretString: !Sub '{"purpose":"nebula-fulfillment-client-demo","token":"${DemoValidCredential}"}'
 
   WebhookFunction:
     Type: AWS::Serverless::Function
@@ -189,14 +191,10 @@ Resources:
       Handler: src/aws/handlers/demo-destination-entry.handler
       Environment:
         Variables:
-          DEMO_DESTINATION_SECRET_ARN: !Ref DemoDestinationSecret
+          DEMO_VALID_CREDENTIAL: !Ref DemoValidCredential
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref IntegrationTable
-        - Statement:
-            - Effect: Allow
-              Action: secretsmanager:GetSecretValue
-              Resource: !Ref DemoDestinationSecret
       Events:
         DemoFulfillment:
           Type: HttpApi
@@ -231,6 +229,8 @@ Resources:
           DEMO_ACCESS_KEY_SHA256: !Ref DemoAccessKeySha256
           DEMO_ORGANIZATION_ID: org_nebula
           DEMO_ACTOR_ID: user_lisset
+          DEMO_CONNECTION_SECRET_ARN: !Ref DemoDestinationSecret
+          DEMO_VALID_CREDENTIAL: !Ref DemoValidCredential
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref IntegrationTable
@@ -290,7 +290,7 @@ Outputs:
   DeliveryDeadLetterQueueUrl:
     Value: !Ref DeliveryDeadLetterQueue
   DemoDestinationUrl:
-    Description: Fictional destination that fails once and accepts the manual retry
+    Description: Fictional destination used by the three controlled AWS laboratory scenarios
     Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/demo/fulfillment"
   DemoDestinationSecretArn:
     Value: !Ref DemoDestinationSecret

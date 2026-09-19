@@ -265,6 +265,7 @@ describe("Lambda handlers", () => {
     const repository = new InMemoryIntegrationRepository();
     repository.addRoleAssignment({ ...demoRoleAssignment, roles: [...demoRoleAssignment.roles] });
     const clock = new FixedClock("2026-09-11T12:00:00.000Z");
+    const preparedScenarios: string[] = [];
     const handler = createControlApiHandler({
       repository,
       queue: new InMemoryQueue(),
@@ -282,7 +283,12 @@ describe("Lambda handlers", () => {
             return { allowed: true, remaining: 49 };
           }
         },
-        dailyLimit: 50
+        dailyLimit: 50,
+        scenarioPreparer: {
+          async prepare(scenario) {
+            preparedScenarios.push(scenario);
+          }
+        }
       }
     });
 
@@ -301,8 +307,47 @@ describe("Lambda handlers", () => {
     assert.equal(response.statusCode, 202);
     assert.equal(body.outcome, "ACCEPTED");
     assert.equal(body.run.status, "QUEUED");
+    assert.equal(body.scenario, "shipping-timeout");
+    assert.equal(body.run.payload.demoScenario, "shipping-timeout");
     assert.equal(body.remaining, 49);
+    assert.deepEqual(preparedScenarios, ["shipping-timeout"]);
     assert.equal(repository.outboxMessages.length, 1);
+  });
+
+  it("rejects an unsupported AWS demo scenario before changing credentials", async () => {
+    const repository = new InMemoryIntegrationRepository();
+    repository.addRoleAssignment({ ...demoRoleAssignment, roles: [...demoRoleAssignment.roles] });
+    let prepared = false;
+    const handler = createControlApiHandler({
+      repository,
+      queue: new InMemoryQueue(),
+      credentialStore,
+      organizationId: "org_nebula",
+      actorId: "user_lisset",
+      accessKeySha256: sha256("demo-control-key"),
+      demoRun: {
+        workflow: activeDemoWorkflow,
+        clock: new FixedClock("2026-09-11T12:00:00.000Z"),
+        ids: new SequentialIds(),
+        limiter: { async consume() { return { allowed: true, remaining: 49 }; } },
+        dailyLimit: 50,
+        scenarioPreparer: { async prepare() { prepared = true; } }
+      }
+    });
+
+    const response = await handler(
+      apiEvent("POST", {
+        path: "/api/demo/runs/demo",
+        headers: {
+          "x-integrationhub-demo-key": "demo-control-key",
+          "x-integrationhub-role": "operator"
+        },
+        body: JSON.stringify({ scenario: "invented-scenario" })
+      })
+    );
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(prepared, false);
   });
 
   it("persists a case closure and blocks later retries", async () => {
@@ -552,6 +597,56 @@ describe("Lambda handlers", () => {
     assert.equal(first.statusCode, 503);
     assert.equal(second.statusCode, 202);
     assert.equal(JSON.parse(second.body ?? "{}").status, "accepted");
+  });
+
+  it("accepts the direct-success AWS scenario without consuming the retry counter", async () => {
+    let invocation = 0;
+    const handler = createDemoDestinationHandler({
+      counter: { increment: async () => ++invocation },
+      getExpectedToken: async () => "destination-token",
+      now: () => new Date("2026-09-11T12:00:00.000Z")
+    });
+
+    const response = await handler(
+      apiEvent("POST", {
+        headers: {
+          authorization: "Bearer destination-token",
+          "x-integrationhub-correlation-id": "correlation_success"
+        },
+        body: JSON.stringify({ orderId: "ORD-SUCCESS", demoScenario: "shipping-success" })
+      })
+    );
+
+    assert.equal(response.statusCode, 202);
+    assert.equal(invocation, 0);
+  });
+
+  it("rejects the credential scenario first and accepts its delivery only after valid authentication", async () => {
+    let invocation = 0;
+    const handler = createDemoDestinationHandler({
+      counter: { increment: async () => ++invocation },
+      getExpectedToken: async () => "destination-token",
+      now: () => new Date("2026-09-11T12:00:00.000Z")
+    });
+    const event = {
+      headers: {
+        authorization: "Bearer invalid-token",
+        "x-integrationhub-correlation-id": "correlation_credentials"
+      },
+      body: JSON.stringify({ orderId: "ORD-CREDENTIALS", demoScenario: "credential-failure" })
+    };
+
+    const rejected = await handler(apiEvent("POST", event));
+    const accepted = await handler(
+      apiEvent("POST", {
+        ...event,
+        headers: { ...event.headers, authorization: "Bearer destination-token" }
+      })
+    );
+
+    assert.equal(rejected.statusCode, 401);
+    assert.equal(accepted.statusCode, 202);
+    assert.equal(invocation, 0);
   });
 
   it("verifies the fictional destination without creating a delivery invocation", async () => {

@@ -5,10 +5,10 @@ delivering them to HTTP destinations, inspecting every attempt, retrying
 temporary failures, and preventing duplicate business operations.
 
 The portfolio demo follows `Nébula Commerce`: an `order.created` event must
-reach its fulfillment API. The fictional destination returns HTTP `503` the
-first time. An operator inspects the failure in the web console and manually
-retries it; the second attempt returns HTTP `202` while both attempts remain in
-the audit history.
+reach its fulfillment API. Its guided AWS laboratory can make the fictional
+provider accept the first request, return a temporary HTTP `503`, or reject an
+invalid credential with HTTP `401`. The console then exposes the appropriate
+operational decision while preserving every real delivery attempt.
 
 ## Architecture
 
@@ -42,7 +42,8 @@ delivery.
 - Manual retry only for `FAILED_RETRYABLE` runs, with a distinct SQS
   deduplication id for the new delivery.
 - Protected operations API for run lists, run details, attempts, and retries.
-- A deterministic demo destination that fails once and accepts the retry.
+- A deterministic AWS laboratory with direct success, temporary failure, and
+  credential-remediation scenarios.
 - Responsive Next.js operations console with a safe local-preview mode.
 - Persistent DynamoDB role assignments, connection remediation metadata,
   audited case closure, and server-side permission checks for every mutation.
@@ -119,12 +120,19 @@ Only the SHA-256 digest of that control key is passed to the Lambda stack. The
 browser never receives either private value; Next.js route handlers act as the
 small backend-for-frontend boundary.
 
-When the panel is connected, **Generar prueba AWS** creates a unique order through
-that same private boundary. The event is persisted with its outbox and then travels
-through DynamoDB Streams, SQS FIFO, the delivery worker, and the fictional provider.
-The generator is restricted to assigned operator or administrator roles and to 50
-new runs per UTC day, enforced atomically in DynamoDB, so a public portfolio visit
-cannot create unbounded AWS traffic.
+When the panel is connected, **Laboratorio AWS** lets the visitor choose direct
+success, a retryable `503`, or a credential `401`. Every option creates a unique
+order through the same private boundary. The event is persisted with its outbox
+and then travels through DynamoDB Streams, SQS FIFO, the delivery worker, and the
+fictional provider. The generator is restricted to assigned operator or
+administrator roles and to 50 new runs per UTC day, enforced atomically in
+DynamoDB, so a public portfolio visit cannot create unbounded AWS traffic.
+
+The credential scenario deliberately changes only IntegrationHub's fictional
+client credential. The provider keeps its independent expected demo value. An
+administrator can load the public laboratory key, save it to Secrets Manager,
+and execute a safe `/verify` request. This check does not resend the order or
+increase its attempt count; an operator must explicitly request the real retry.
 
 After updating an existing stack, run `pnpm seed:aws-demo` again. The seed is
 idempotent for the portfolio tenant and now also creates the `user_lisset` demo

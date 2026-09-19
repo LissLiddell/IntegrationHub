@@ -12,6 +12,7 @@ import type {
 } from "../../domain/ports.ts";
 import type { DemoRunLimiter } from "../dynamo-demo-run-limiter.ts";
 import { sha256 } from "../dynamo-keys.ts";
+import { isAwsDemoScenario, type DemoScenarioPreparer } from "../demo-scenario.ts";
 
 export interface ControlApiDependencies {
   repository: IntegrationRepository;
@@ -27,6 +28,7 @@ export interface ControlApiDependencies {
     ids: IdGenerator;
     limiter: DemoRunLimiter;
     dailyLimit: number;
+    scenarioPreparer: DemoScenarioPreparer;
   };
 }
 
@@ -118,7 +120,7 @@ export function createControlApiHandler(dependencies: ControlApiDependencies) {
           });
         }
         const body = parseBody(event);
-        if (!body || (body.scenario !== undefined && body.scenario !== "shipping-timeout")) {
+        if (!body || !isAwsDemoScenario(body.scenario)) {
           return json(400, {
             error: { code: "INVALID_DEMO_SCENARIO", message: "The requested AWS demo scenario is not supported." }
           });
@@ -139,6 +141,8 @@ export function createControlApiHandler(dependencies: ControlApiDependencies) {
           });
         }
 
+        await dependencies.demoRun.scenarioPreparer.prepare(body.scenario);
+
         const suffix = randomUUID();
         const result = await ingestWorkflowEvent(
           dependencies.demoRun.workflow,
@@ -151,7 +155,8 @@ export function createControlApiHandler(dependencies: ControlApiDependencies) {
               currency: "MXN",
               items: 2,
               warehouse: "MEX-01",
-              source: "portfolio-aws-demo"
+              source: "portfolio-aws-demo",
+              demoScenario: body.scenario
             }
           },
           {
@@ -163,6 +168,7 @@ export function createControlApiHandler(dependencies: ControlApiDependencies) {
         return json(202, {
           outcome: result.outcome,
           run: result.run,
+          scenario: body.scenario,
           remaining: allowance.remaining
         });
       }

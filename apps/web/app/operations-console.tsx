@@ -10,6 +10,7 @@ import {
   type OperatorRole
 } from "@/lib/operations-rules";
 import type {
+  AwsDemoScenario,
   AwsDemoRunResponse,
   CaseActivity,
   CaseClosure,
@@ -29,7 +30,9 @@ const closeReasons = [
   "Otro motivo"
 ];
 
-type DemoScenario = "shipping-timeout" | "invoice-success";
+type PreviewDemoScenario = "shipping-timeout" | "invoice-success";
+
+const publicDemoCredential = "nebula-portfolio-demo-2026";
 
 const workflowText: Record<string, { event: string; action: string; connection: string }> = {
   workflow_orders: {
@@ -606,7 +609,7 @@ export function OperationsConsole() {
     setNotice(`Rol activo: ${roleText[nextRole]}. Las acciones disponibles fueron actualizadas.`);
   }
 
-  function createDemoRun(scenario: DemoScenario, startDelay = 0, select = true) {
+  function createDemoRun(scenario: PreviewDemoScenario, startDelay = 0, select = true) {
     const suffix = `${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 4)}`.toUpperCase();
     const runId = `run_LOCAL_${suffix}`;
     const createdAt = new Date().toISOString();
@@ -686,7 +689,7 @@ export function OperationsConsole() {
     return runId;
   }
 
-  function launchDemoScenario(scenario: DemoScenario | "traffic-burst") {
+  function launchDemoScenario(scenario: PreviewDemoScenario | "traffic-burst") {
     setDemoPanelOpen(false);
     if (scenario === "traffic-burst") {
       const firstRunId = createDemoRun("shipping-timeout", 0, true);
@@ -704,19 +707,25 @@ export function OperationsConsole() {
     );
   }
 
-  async function generateAwsDemoRun() {
+  async function generateAwsDemoRun(scenario: AwsDemoScenario) {
     if (role === "auditor") {
       setNotice("El rol Auditor es de sólo lectura. Cambia a Operador o Administrador para generar una prueba.");
       return;
     }
 
     setIsGeneratingAwsDemo(true);
-    setNotice("Enviando un pedido nuevo al pipeline real de AWS…");
+    setNotice(
+      scenario === "shipping-success"
+        ? "Enviando a AWS un pedido que el proveedor aceptará al primer intento…"
+        : scenario === "shipping-timeout"
+          ? "Enviando a AWS un pedido que recibirá un fallo temporal HTTP 503…"
+          : "Desajustando la credencial del laboratorio y enviando un pedido que recibirá HTTP 401…"
+    );
     try {
       const response = await fetch("/api/runs/demo", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ role })
+        body: JSON.stringify({ role, scenario })
       });
       const body = (await response.json()) as AwsDemoRunResponse & {
         error?: { code?: string; message?: string };
@@ -731,8 +740,9 @@ export function OperationsConsole() {
       setRuns((current) => [body.run, ...current.filter((run) => run.id !== body.run.id)]);
       setAttempts((current) => ({ ...current, [body.run.id]: [] }));
       setSelectedId(body.run.id);
+      setDemoPanelOpen(false);
       setNotice(
-        `Pedido aceptado por AWS. Sigue su recorrido en vivo; quedan ${body.remaining} pruebas disponibles hoy.`
+        `Escenario aceptado por AWS. Sigue su recorrido en vivo; quedan ${body.remaining} pruebas disponibles hoy.`
       );
 
       void (async () => {
@@ -740,7 +750,11 @@ export function OperationsConsole() {
           await new Promise((resolve) => window.setTimeout(resolve, delay));
           await Promise.all([loadDetail(body.run.id), loadRuns(true)]);
         }
-        setNotice("La prueba AWS terminó su primer intento. Ya puedes revisar el resultado y su historial.");
+        setNotice(
+          scenario === "credential-failure"
+            ? "El primer intento terminó con HTTP 401. Cambia a Administradora para corregir y probar sólo la conexión."
+            : "La prueba AWS terminó su primer intento. Ya puedes revisar el resultado y su historial."
+        );
       })();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "No fue posible generar la prueba AWS.");
@@ -800,11 +814,12 @@ export function OperationsConsole() {
               <button
                 className="demo-button"
                 type="button"
-                onClick={() => void generateAwsDemoRun()}
+                onClick={() => setDemoPanelOpen((current) => !current)}
                 disabled={isGeneratingAwsDemo || role === "auditor"}
-                title={role === "auditor" ? "El rol Auditor es de sólo lectura" : "Crea un pedido real en AWS"}
+                aria-expanded={demoPanelOpen}
+                title={role === "auditor" ? "El rol Auditor es de sólo lectura" : "Elige un escenario real en AWS"}
               >
-                <Icon name="bolt" /> {isGeneratingAwsDemo ? "Generando en AWS…" : "Generar prueba AWS"}
+                <Icon name="bolt" /> {isGeneratingAwsDemo ? "Generando en AWS…" : "Laboratorio AWS"}
               </button>
             )}
             <button className="secondary-button" type="button" onClick={() => void loadRuns()} disabled={isRefreshing}>
@@ -813,30 +828,56 @@ export function OperationsConsole() {
           </div>
         </section>
 
-        {mode === "preview" && demoPanelOpen ? (
+        {demoPanelOpen ? (
           <section className="demo-launcher" aria-labelledby="demo-launcher-title">
             <div className="demo-launcher-copy">
               <span className="section-kicker">LABORATORIO DE DEMOSTRACIÓN</span>
-              <h2 id="demo-launcher-title">¿Qué tráfico quieres ver entrar?</h2>
-              <p>En producción estos avisos llegarían automáticamente. Aquí los provocamos para observar su recorrido en vivo.</p>
+              <h2 id="demo-launcher-title">
+                {mode === "connected" ? "¿Qué comportamiento quieres provocar en AWS?" : "¿Qué tráfico quieres ver entrar?"}
+              </h2>
+              <p>
+                {mode === "connected"
+                  ? "Cada opción crea una ejecución real en DynamoDB, la publica en SQS y llama al proveedor ficticio. Tú decides qué respuesta observar."
+                  : "En producción estos avisos llegarían automáticamente. Aquí los provocamos para observar su recorrido en vivo."}
+              </p>
             </div>
-            <div className="demo-scenarios">
-              <button type="button" onClick={() => launchDemoScenario("shipping-timeout")}>
-                <span className="scenario-icon">01</span>
-                <span><strong>Pedido para envío</strong><small>El proveedor tarda, aparece el fallo temporal y permite reintentar.</small></span>
-                <Icon name="arrow" />
-              </button>
-              <button type="button" onClick={() => launchDemoScenario("invoice-success")}>
-                <span className="scenario-icon">02</span>
-                <span><strong>Solicitud de factura</strong><small>Recorre cola y proceso; el proveedor fiscal la acepta al primer intento.</small></span>
-                <Icon name="arrow" />
-              </button>
-              <button className="scenario-burst" type="button" onClick={() => launchDemoScenario("traffic-burst")}>
-                <span className="scenario-icon">03</span>
-                <span><strong>Ráfaga de operación</strong><small>Entran dos envíos y una factura para ver tres ejecuciones trabajando juntas.</small></span>
-                <Icon name="arrow" />
-              </button>
-            </div>
+            {mode === "connected" ? (
+              <div className="demo-scenarios">
+                <button type="button" onClick={() => void generateAwsDemoRun("shipping-success")} disabled={isGeneratingAwsDemo}>
+                  <span className="scenario-icon">01</span>
+                  <span><strong>Éxito al primer intento</strong><small>El proveedor responde HTTP 202 y el pedido queda entregado sin intervención.</small></span>
+                  <Icon name="arrow" />
+                </button>
+                <button className="scenario-burst" type="button" onClick={() => void generateAwsDemoRun("shipping-timeout")} disabled={isGeneratingAwsDemo}>
+                  <span className="scenario-icon">02</span>
+                  <span><strong>Fallo temporal</strong><small>El proveedor responde HTTP 503. La Operadora puede lanzar un segundo intento.</small></span>
+                  <Icon name="arrow" />
+                </button>
+                <button className="scenario-danger" type="button" onClick={() => void generateAwsDemoRun("credential-failure")} disabled={isGeneratingAwsDemo}>
+                  <span className="scenario-icon">03</span>
+                  <span><strong>Credencial rechazada</strong><small>Provoca HTTP 401: Administradora corrige y verifica; Operadora reprocesa después.</small></span>
+                  <Icon name="arrow" />
+                </button>
+              </div>
+            ) : (
+              <div className="demo-scenarios">
+                <button type="button" onClick={() => launchDemoScenario("shipping-timeout")}>
+                  <span className="scenario-icon">01</span>
+                  <span><strong>Pedido para envío</strong><small>El proveedor tarda, aparece el fallo temporal y permite reintentar.</small></span>
+                  <Icon name="arrow" />
+                </button>
+                <button type="button" onClick={() => launchDemoScenario("invoice-success")}>
+                  <span className="scenario-icon">02</span>
+                  <span><strong>Solicitud de factura</strong><small>Recorre cola y proceso; el proveedor fiscal la acepta al primer intento.</small></span>
+                  <Icon name="arrow" />
+                </button>
+                <button className="scenario-burst" type="button" onClick={() => launchDemoScenario("traffic-burst")}>
+                  <span className="scenario-icon">03</span>
+                  <span><strong>Ráfaga de operación</strong><small>Entran dos envíos y una factura para ver tres ejecuciones trabajando juntas.</small></span>
+                  <Icon name="arrow" />
+                </button>
+              </div>
+            )}
           </section>
         ) : null}
 
@@ -949,6 +990,13 @@ export function OperationsConsole() {
                     />
                     <small>En producción se enviaría a un almacén de secretos; nunca se mostraría otra vez.</small>
                   </label>
+                  {mode === "connected" && selectedAttempts.at(-1)?.httpStatus === 401 ? (
+                    <div className="demo-credential-helper">
+                      <span><strong>Clave ficticia del laboratorio</strong><code>{publicDemoCredential}</code></span>
+                      <button type="button" onClick={() => setCredentialDraft(publicDemoCredential)}>Cargar clave demo</button>
+                      <small>No da acceso a AWS ni a datos reales. Sirve únicamente para comprobar este flujo público.</small>
+                    </div>
+                  ) : null}
                   <div className="form-actions">
                     <button className="text-button" type="button" onClick={() => setConnectionPanelOpen(false)}>Cancelar</button>
                     <button className="retry-button" type="button" onClick={() => void repairConnection()} disabled={isTestingConnection}>
